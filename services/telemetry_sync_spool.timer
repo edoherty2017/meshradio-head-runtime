@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Meshradio HEAD store-and-forward sync every 2 minutes
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=2min
+Unit=telemetry_sync_spool.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

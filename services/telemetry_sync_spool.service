@@ -1,0 +1,9 @@
+[Unit]
+Description=Meshradio HEAD store-and-forward sync
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /home/pump/telemetry_sync_spool.sh
+Environment=OUT_DIR=/home/pump/telemetry_head
+Environment=REMOTE_TARGET=doher@100.102.102.63:/home/doher/manet_ingest/meshradiohead
