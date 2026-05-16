@@ -3,7 +3,7 @@ set -euo pipefail
 
 OUT_DIR="${OUT_DIR:-/home/pump/telemetry_head}"
 REMOTE_TARGET="${REMOTE_TARGET:-}"   # e.g. doher@100.102.102.63:/home/doher/manet_ingest/meshradiohead
-SSH_OPTS="${SSH_OPTS:--o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=5 -o ServerAliveCountMax=2}"
+SSH_OPTS="${SSH_OPTS:--o BatchMode=yes -o ConnectTimeout=8 -o ServerAliveInterval=5 -o ServerAliveCountMax=2 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null}"
 LOCKFILE="/tmp/telemetry_sync_spool.lock"
 LOGFILE="${OUT_DIR}/sync_spool.log"
 
