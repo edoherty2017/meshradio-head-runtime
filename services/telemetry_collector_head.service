@@ -1,0 +1,18 @@
+[Unit]
+Description=Meshradio HEAD Telemetry Collector (serial -> jsonl)
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/pump/telemetry_collector.py
+Restart=always
+RestartSec=2
+Environment=LORA_PORT=/dev/lora_radio
+Environment=LORA_BAUD=115200
+Environment=TRIAL_ID=trial-live
+Environment=NODE_ID=meshradiohead
+Environment=HEAD_ID=meshnodehead
+Environment=OUT_DIR=/home/pump/telemetry_head
+
+[Install]
+WantedBy=default.target
