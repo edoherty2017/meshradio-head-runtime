@@ -1,0 +1,20 @@
+[Unit]
+Description=Meshtastic fallback command worker (MESH_ONLY control-plane)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pump
+Group=pump
+Environment=OUT_DIR=/home/pump/telemetry_head
+Environment=FALLBACK_COMMAND_QUEUE=/home/pump/telemetry_head/fallback_commands.jsonl
+Environment=CONNECTIVITY_MODE_FILE=/home/pump/telemetry_head/connectivity_mode.state
+Environment=FALLBACK_ACK_FILE=/home/pump/telemetry_head/fallback_acks.jsonl
+ExecStart=/usr/bin/python3 /home/pump/meshradio-head-runtime/scripts/meshtastic_fallback_worker.py --once --connectivity-mode-file ${CONNECTIVITY_MODE_FILE} --queue-path ${FALLBACK_COMMAND_QUEUE} --out-dir ${OUT_DIR} --ack-file ${FALLBACK_ACK_FILE}
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=5
+
+[Install]
+WantedBy=multi-user.target
