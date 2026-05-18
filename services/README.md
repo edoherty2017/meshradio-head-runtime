@@ -21,4 +21,5 @@ sudo systemctl edit meshtastic_fallback_worker.service
 # Environment=FALLBACK_COMMAND_QUEUE=/home/pump/telemetry_head/fallback_commands.jsonl
 # Environment=CONNECTIVITY_MODE_FILE=/home/pump/telemetry_head/connectivity_mode.state
 # Environment=FALLBACK_ACK_FILE=/home/pump/telemetry_head/fallback_acks.jsonl
+# Environment=MESHTASTIC_NODE_MAP_FILE=/home/pump/telemetry_head/meshtastic_node_map.json
 ```

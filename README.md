@@ -45,6 +45,9 @@ python3 scripts/fallback_command_queue.py enqueue \
   --ttl-sec 600 \
   --mode MESH_ONLY
 
+# target can be a broadcast keyword (broadcast/all/*/^all),
+# a direct node id (!db51af80), or an alias resolved via --node-map-file.
+
 python3 scripts/fallback_command_queue.py list --only-pending
 ```
 
@@ -70,6 +73,35 @@ python3 scripts/meshtastic_fallback_worker.py \
 ### Real Meshtastic CLI mode
 If `meshtastic` CLI is in `PATH`, the worker uses it automatically (or set `--meshtastic-cli /path/to/meshtastic`).
 Use `--meshtastic-extra-args` for adapter-specific flags.
+
+### Target resolution (alias -> node id mapping)
+Worker supports alias mapping to avoid Meshtastic `--dest` failures from logical names.
+
+Provide a JSON map file with either shape:
+
+```json
+{
+  "aliases": {
+    "meshhikernode1": "!db51af80",
+    "meshhikernode2": "!c0ffee12"
+  }
+}
+```
+
+or:
+
+```json
+{
+  "nodes": [
+    {"name": "meshhikernode1", "id": "!db51af80"}
+  ]
+}
+```
+
+Then run worker with `--node-map-file /home/pump/telemetry_head/meshtastic_node_map.json`
+(or env `MESHTASTIC_NODE_MAP_FILE`).
+
+If a target is unresolved, worker records `COMMAND_TARGET_UNRESOLVED` and marks that command `error`.
 
 ### ACK ingestion paths
 - Manual ACK JSONL file (`--ack-file`): entries containing `command_id`

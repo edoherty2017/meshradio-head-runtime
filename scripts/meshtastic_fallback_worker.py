@@ -16,6 +16,7 @@ from typing import Any
 
 DEFAULT_QUEUE = "/home/pump/telemetry_head/fallback_commands.jsonl"
 DEFAULT_OUT_DIR = "/home/pump/telemetry_head"
+BROADCAST_TARGETS = {"*", "all", "broadcast", "^all"}
 
 
 def utc_now() -> dt.datetime:
@@ -66,6 +67,58 @@ def append_event(path: Path, event: dict[str, Any]) -> None:
         f.write(json.dumps(event, separators=(",", ":")) + "\n")
 
 
+def load_node_map(path: Path | None) -> dict[str, str]:
+    if not path or not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+    mapping: dict[str, str] = {}
+
+    aliases = raw.get("aliases") if isinstance(raw, dict) else None
+    if isinstance(aliases, dict):
+        for k, v in aliases.items():
+            if isinstance(k, str) and isinstance(v, str):
+                mapping[k.strip()] = v.strip()
+
+    nodes = raw.get("nodes") if isinstance(raw, dict) else None
+    if isinstance(nodes, list):
+        for item in nodes:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name")
+            node_id = item.get("id")
+            if isinstance(name, str) and isinstance(node_id, str):
+                mapping[name.strip()] = node_id.strip()
+
+    return mapping
+
+
+def is_valid_mesh_dest(target: str) -> bool:
+    t = target.strip()
+    if t in BROADCAST_TARGETS:
+        return True
+    if re.fullmatch(r"!?[0-9a-fA-F]{8}", t):
+        return True
+    if re.fullmatch(r"[0-9]+", t):
+        return True
+    return False
+
+
+def resolve_target(target: str, node_map: dict[str, str]) -> tuple[str, str]:
+    t = target.strip()
+    if t in BROADCAST_TARGETS:
+        return t, "broadcast"
+    if is_valid_mesh_dest(t):
+        return t, "direct"
+    mapped = node_map.get(t)
+    if mapped:
+        return mapped, "mapped"
+    return t, "unresolved"
+
+
 class TransportAdapter:
     def send(self, target: str, payload: str, command_id: str) -> dict[str, Any]:
         raise NotImplementedError
@@ -94,7 +147,7 @@ class MeshtasticCliAdapter(TransportAdapter):
         cmd = [*self.cli_cmd]
         if self.port:
             cmd.extend(["--port", self.port])
-        if target not in {"*", "all", "broadcast", "^all"}:
+        if target not in BROADCAST_TARGETS:
             cmd.extend(["--dest", target])
         cmd.extend(["--sendtext", tagged, *self.extra_args])
         proc = subprocess.run(cmd, capture_output=True, text=True)
@@ -224,6 +277,7 @@ def main() -> int:
     p.add_argument("--meshtastic-port", default=os.environ.get("MESHTASTIC_PORT", ""))
     p.add_argument("--ack-file", default=os.environ.get("FALLBACK_ACK_FILE", ""), help="JSONL records with command_id")
     p.add_argument("--rx-log", default=os.environ.get("MESHTASTIC_RX_LOG", ""), help="Meshtastic RX log to parse for ACK lines")
+    p.add_argument("--node-map-file", default=os.environ.get("MESHTASTIC_NODE_MAP_FILE", ""), help="JSON file mapping logical targets to Meshtastic node IDs")
 
     args = p.parse_args()
 
@@ -237,6 +291,7 @@ def main() -> int:
 
     def run_pass() -> None:
         now = utc_now()
+        node_map = load_node_map(Path(args.node_map_file)) if args.node_map_file else {}
 
         # Respect MESH_ONLY window if requested.
         if args.connectivity_mode_file:
@@ -311,7 +366,24 @@ def main() -> int:
                 error_count += 1
                 continue
 
-            result = adapter.send(target=target, payload=payload, command_id=cid)
+            resolved_target, target_source = resolve_target(target, node_map)
+            rec["resolved_target_node_id"] = resolved_target
+            rec["target_resolution_source"] = target_source
+            if target_source == "unresolved":
+                rec["status"] = "error"
+                rec["last_error"] = "unresolved_target_node_id"
+                rec["last_error_at_utc"] = utc_now_iso()
+                error_count += 1
+                append_event(events_path, {
+                    "timestamp_utc": utc_now_iso(),
+                    "event_type": "COMMAND_TARGET_UNRESOLVED",
+                    "command_id": cid,
+                    "target_node_id": target,
+                    "node_map_file": args.node_map_file,
+                })
+                continue
+
+            result = adapter.send(target=resolved_target, payload=payload, command_id=cid)
             rec["send_attempts"] = int(rec.get("send_attempts", 0) or 0) + 1
             rec["last_attempt_at_utc"] = utc_now_iso()
             rec["last_transport"] = result.get("transport")
@@ -330,6 +402,8 @@ def main() -> int:
                     "event_type": "COMMAND_SENT",
                     "command_id": cid,
                     "target_node_id": target,
+                    "resolved_target_node_id": resolved_target,
+                    "target_resolution_source": target_source,
                     "attempt": rec["send_attempts"],
                     "transport": result.get("transport"),
                 })
@@ -357,6 +431,8 @@ def main() -> int:
             "expired_count": expired_count,
             "error_count": error_count,
             "adapter": adapter.__class__.__name__,
+            "node_map_file": args.node_map_file,
+            "node_map_entries": len(node_map),
         })
 
     with lock_path.open("w", encoding="utf-8") as lockf:

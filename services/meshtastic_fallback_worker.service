@@ -13,7 +13,8 @@ Environment=CONNECTIVITY_MODE_FILE=/home/pump/telemetry_head/connectivity_mode.s
 Environment=FALLBACK_ACK_FILE=/home/pump/telemetry_head/fallback_acks.jsonl
 Environment=MESHTASTIC_CLI=python3 -m meshtastic
 Environment=MESHTASTIC_PORT=/dev/ttyUSB0
-ExecStart=/usr/bin/python3 /home/pump/projects/manet/meshradio-head-runtime/scripts/meshtastic_fallback_worker.py --once --connectivity-mode-file ${CONNECTIVITY_MODE_FILE} --queue-path ${FALLBACK_COMMAND_QUEUE} --out-dir ${OUT_DIR} --ack-file ${FALLBACK_ACK_FILE}
+Environment=MESHTASTIC_NODE_MAP_FILE=/home/pump/telemetry_head/meshtastic_node_map.json
+ExecStart=/usr/bin/python3 /home/pump/projects/manet/meshradio-head-runtime/scripts/meshtastic_fallback_worker.py --once --connectivity-mode-file ${CONNECTIVITY_MODE_FILE} --queue-path ${FALLBACK_COMMAND_QUEUE} --out-dir ${OUT_DIR} --ack-file ${FALLBACK_ACK_FILE} --node-map-file ${MESHTASTIC_NODE_MAP_FILE}
 Nice=5
 IOSchedulingClass=best-effort
 IOSchedulingPriority=5
