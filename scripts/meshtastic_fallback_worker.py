@@ -84,13 +84,19 @@ class DryRunAdapter(TransportAdapter):
 
 
 class MeshtasticCliAdapter(TransportAdapter):
-    def __init__(self, cli: str, extra_args: str = "") -> None:
-        self.cli = cli
+    def __init__(self, cli_cmd: str, extra_args: str = "", port: str = "") -> None:
+        self.cli_cmd = shlex.split(cli_cmd)
         self.extra_args = shlex.split(extra_args) if extra_args else []
+        self.port = port
 
     def send(self, target: str, payload: str, command_id: str) -> dict[str, Any]:
         tagged = f"[cmd:{command_id}] {payload}"
-        cmd = [self.cli, "--dest", target, "--sendtext", tagged, *self.extra_args]
+        cmd = [*self.cli_cmd]
+        if self.port:
+            cmd.extend(["--port", self.port])
+        if target not in {"*", "all", "broadcast", "^all"}:
+            cmd.extend(["--dest", target])
+        cmd.extend(["--sendtext", tagged, *self.extra_args])
         proc = subprocess.run(cmd, capture_output=True, text=True)
         ok = proc.returncode == 0
         return {
@@ -107,16 +113,17 @@ def build_adapter(args: argparse.Namespace) -> TransportAdapter:
     if args.dry_run:
         return DryRunAdapter()
     cli = args.meshtastic_cli
-    if cli and Path(cli).exists():
-        return MeshtasticCliAdapter(cli=cli, extra_args=args.meshtastic_extra_args)
-    # fallback to PATH check
     if cli:
-        found = shutil_which(cli)
-        if found:
-            return MeshtasticCliAdapter(cli=found, extra_args=args.meshtastic_extra_args)
+        # Accept full command strings (e.g. "python3 -m meshtastic")
+        cli_head = shlex.split(cli)[0]
+        if Path(cli_head).exists() or shutil_which(cli_head):
+            return MeshtasticCliAdapter(cli_cmd=cli, extra_args=args.meshtastic_extra_args, port=args.meshtastic_port)
     found = shutil_which("meshtastic")
     if found:
-        return MeshtasticCliAdapter(cli=found, extra_args=args.meshtastic_extra_args)
+        return MeshtasticCliAdapter(cli_cmd=found, extra_args=args.meshtastic_extra_args, port=args.meshtastic_port)
+    # common fallback when only the Python module is installed
+    if shutil_which("python3"):
+        return MeshtasticCliAdapter(cli_cmd="python3 -m meshtastic", extra_args=args.meshtastic_extra_args, port=args.meshtastic_port)
     return DryRunAdapter()
 
 
@@ -214,6 +221,7 @@ def main() -> int:
     p.add_argument("--retry-max-sec", type=float, default=120.0)
     p.add_argument("--meshtastic-cli", default=os.environ.get("MESHTASTIC_CLI", "meshtastic"))
     p.add_argument("--meshtastic-extra-args", default=os.environ.get("MESHTASTIC_EXTRA_ARGS", ""))
+    p.add_argument("--meshtastic-port", default=os.environ.get("MESHTASTIC_PORT", ""))
     p.add_argument("--ack-file", default=os.environ.get("FALLBACK_ACK_FILE", ""), help="JSONL records with command_id")
     p.add_argument("--rx-log", default=os.environ.get("MESHTASTIC_RX_LOG", ""), help="Meshtastic RX log to parse for ACK lines")
 
