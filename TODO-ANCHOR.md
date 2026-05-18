@@ -1,34 +1,24 @@
 # TODO Anchor — meshradio-head-runtime
 
-This repo owns head-node runtime collection, parser robustness, and spool/sync reliability.
+This anchor was pruned to active, execution-critical items only.
 
-## Priority Order (Do in sequence)
+## Priority Order (strict)
 
-## [P1] Runtime hardening (head)
-- [ ] P1-C Add parser status counters to collector (`checksum_ok`, `checksum_bad`, `malformed_frame`) in `scripts/telemetry_collector.py`.
-- [ ] Ensure collector output conforms to canonical telemetry schema from orchestration repo.
-- [ ] Validate serial device detection compatibility with validation pack.
-- [ ] Verify spool resilience in `scripts/telemetry_sync_spool.sh` (retry/backlog flush behavior).
-- [ ] Produce head-side PASS/FAIL evidence for device + field-population + outage recovery.
+## [P1] Keep runtime stable and commandable
+- [x] Connectivity-mode and control-plane outage events emitted by spool.
+- [x] Meshtastic fallback queue worker deployed with retries/backoff/TTL/ACK lifecycle.
+- [ ] Add deterministic serial arbitration policy between collector and Meshtastic CLI worker (no port contention).
+- [ ] Produce repeatable PASS/FAIL probe script for serial ownership + worker send/ack path.
 
-## [P2] Runtime support for topo/geology pipeline inputs
-- [ ] Ensure required raw telemetry fields for downstream DEM/geology stages are always present or explicitly null-labeled.
-- [ ] Add/verify provenance tags required by downstream manifests.
+## [P2] Telemetry schema parity + readiness evidence
+- [x] Collector parser integrity counters present (`checksum_ok`, `checksum_bad`, `malformed_frame`).
+- [ ] Enforce required-field shape with explicit null semantics for missing GNSS/cellular fields.
+- [ ] Emit machine-readable head readiness report (service state, schema parity, backlog health).
 
-## [P3] Runtime support for inference path
-- [ ] Guarantee stable export cadence and schema for live inference ingestion.
-- [ ] Confirm fallback metric fields (`rsrp_dbm`, `rssi_dbm`) are emitted with clear null semantics.
-
-## [P4] Runtime support for sentinel/quantifier
-- [ ] Ensure collector emits fields needed for anomaly and stratified error analysis.
-- [ ] Add any missing diagnostic counters required by sentinel gates.
-
-## [P5] Runtime support for weather guard signals
-- [ ] Ensure runtime can consume/act on hold/caution signals from orchestration layer (if implemented via config/event file).
-
-## [P6] Release readiness
-- [ ] Pass integrated dry-run/live-trial runtime checks.
-- [ ] Tag release cut with verified runtime evidence.
+## [P3] Cellular telemetry ingestion (head)
+- [ ] Add host-side cellular telemetry collector (ModemManager/NM based, null-safe when modem absent).
+- [ ] Merge cellular status into runtime telemetry export path.
+- [ ] Add validation matrix for modem present/absent and attached/detached states.
 
 ## Completion condition for this repo
-- [ ] Head runtime is schema-stable, outage-resilient, and fully compatible with P1–P6 orchestration gates.
+- [ ] Head runtime can: (1) collect schema-valid telemetry, (2) survive control-plane outages, (3) send fallback commands over Meshtastic, and (4) expose cellular telemetry state for analysis.
