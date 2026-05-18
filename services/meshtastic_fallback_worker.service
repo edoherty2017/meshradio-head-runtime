@@ -11,7 +11,7 @@ Environment=OUT_DIR=/home/pump/telemetry_head
 Environment=FALLBACK_COMMAND_QUEUE=/home/pump/telemetry_head/fallback_commands.jsonl
 Environment=CONNECTIVITY_MODE_FILE=/home/pump/telemetry_head/connectivity_mode.state
 Environment=FALLBACK_ACK_FILE=/home/pump/telemetry_head/fallback_acks.jsonl
-Environment=MESHTASTIC_CLI=python3 -m meshtastic
+Environment=MESHTASTIC_CLI=/home/pump/.venvs/meshtastic/bin/meshtastic
 Environment=MESHTASTIC_PORT=/dev/ttyUSB0
 Environment=MESHTASTIC_NODE_MAP_FILE=/home/pump/telemetry_head/meshtastic_node_map.json
 ExecStart=/usr/bin/python3 /home/pump/projects/manet/meshradio-head-runtime/scripts/meshtastic_fallback_worker.py --once --connectivity-mode-file ${CONNECTIVITY_MODE_FILE} --queue-path ${FALLBACK_COMMAND_QUEUE} --out-dir ${OUT_DIR} --ack-file ${FALLBACK_ACK_FILE} --node-map-file ${MESHTASTIC_NODE_MAP_FILE}
