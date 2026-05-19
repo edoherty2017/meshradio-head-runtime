@@ -11,7 +11,7 @@ Runtime code/config for the carried HEAD node.
 
 ## Offline/mobile behavior
 - Telemetry collection is local-first (serial -> local `raw/` + `jsonl/`).
-- If Wi-Fi/hotspot drops, collection continues locally.
+- If the upstream IP link drops, collection continues locally.
 - Sync retries automatically on timer; data is forwarded once connectivity returns.
 - Sync spool now emits connectivity transition events to `connectivity_events.jsonl` with:
   - `CONNECTIVITY_MODE_CHANGE` (`IP_FULL`, `IP_DEGRADED`, `MESH_ONLY`)
@@ -30,10 +30,6 @@ sudo systemctl enable --now telemetry_sync_spool.timer
 sudo systemctl start telemetry_sync_spool.service
 sudo systemctl status telemetry_sync_spool.timer --no-pager
 ```
-
-## iPhone hotspot
-Yes — the HEAD Pi can use an iPhone hotspot as upstream internet (normal Wi-Fi client mode).
-This does not change local LoRa capture behavior; it only affects when sync can forward data.
 
 ## Fallback command queue (Meshtastic bridge handoff)
 Use this helper to queue lightweight control commands when in `MESH_ONLY` windows:
