@@ -4,15 +4,17 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /home/pump/telemetry_collector.py
+ExecStart=/usr/bin/python3 /home/pump/projects/manet/meshradio-head-runtime/scripts/telemetry_collector.py
 Restart=always
 RestartSec=2
 Environment=LORA_PORT=/dev/lora_radio
 Environment=LORA_BAUD=115200
 Environment=TRIAL_ID=trial-live
-Environment=NODE_ID=meshradiohead
-Environment=HEAD_ID=meshnodehead
+Environment=NODE_ID=meshradiohead2
+Environment=HEAD_ID=meshradiohead2
 Environment=OUT_DIR=/home/pump/telemetry_head
+Environment=SERIAL_LOCK_PATH=/home/pump/telemetry_head/.serial.lock
+Environment=PYTHONPATH=/home/pump/.local/lib/python3.13/site-packages
 
 [Install]
 WantedBy=default.target

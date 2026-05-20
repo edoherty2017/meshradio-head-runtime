@@ -1,0 +1,23 @@
+[Unit]
+Description=Starlink gRPC raw telemetry poller (15s interval)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pump
+Group=pump
+Environment=OUT_DIR=/home/pump/telemetry_head
+Environment=TRIAL_ID=trial-live
+Environment=NODE_ID=meshradiohead2
+Environment=STARLINK_TARGET=192.168.100.1:9200
+Environment=STARLINK_POLL_S=15
+Environment=PYTHONPATH=/home/pump/projects/manet/starlink-grpc-tools
+ExecStart=/home/pump/.venvs/starlink/bin/python3 /home/pump/projects/manet/meshradio-head-runtime/scripts/starlink_raw_poller.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

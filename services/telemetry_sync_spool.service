@@ -6,6 +6,6 @@ After=network-online.target
 Type=oneshot
 User=pump
 Group=pump
-ExecStart=/usr/bin/bash /home/pump/telemetry_sync_spool.sh
+ExecStart=/usr/bin/bash /home/pump/projects/manet/meshradio-head-runtime/scripts/telemetry_sync_spool.sh
 Environment=OUT_DIR=/home/pump/telemetry_head
-Environment=REMOTE_TARGET=doher@100.102.102.63:/home/doher/manet_ingest/meshradiohead
+Environment=REMOTE_TARGET=doher@100.102.102.63:/home/doher/manet_ingest/meshradiohead2

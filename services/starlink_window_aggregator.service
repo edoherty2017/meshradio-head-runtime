@@ -1,0 +1,21 @@
+[Unit]
+Description=Starlink 60-second tumbling window aggregator
+After=starlink_raw_poller.service
+Requires=starlink_raw_poller.service
+
+[Service]
+Type=simple
+User=pump
+Group=pump
+Environment=OUT_DIR=/home/pump/telemetry_head
+Environment=TRIAL_ID=trial-live
+Environment=NODE_ID=meshradiohead2
+Environment=PYTHONPATH=/home/pump/projects/manet/starlink-grpc-tools
+ExecStart=/home/pump/.venvs/starlink/bin/python3 /home/pump/projects/manet/meshradio-head-runtime/scripts/starlink_window_aggregator.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -278,6 +278,7 @@ def main() -> int:
     p.add_argument("--ack-file", default=os.environ.get("FALLBACK_ACK_FILE", ""), help="JSONL records with command_id")
     p.add_argument("--rx-log", default=os.environ.get("MESHTASTIC_RX_LOG", ""), help="Meshtastic RX log to parse for ACK lines")
     p.add_argument("--node-map-file", default=os.environ.get("MESHTASTIC_NODE_MAP_FILE", ""), help="JSON file mapping logical targets to Meshtastic node IDs")
+    p.add_argument("--serial-lock-path", default=os.environ.get("SERIAL_LOCK_PATH", "/run/lock/manet_lora_serial.lock"), help="Lock file shared with telemetry_collector for serial port arbitration")
 
     args = p.parse_args()
 
@@ -293,6 +294,36 @@ def main() -> int:
         now = utc_now()
         node_map = load_node_map(Path(args.node_map_file)) if args.node_map_file else {}
 
+        # Serial port arbitration: try to acquire the lock the collector holds
+        # while its interface is open. If held, skip this pass — the collector
+        # owns the port. Commands remain queued and retry next timer tick.
+        serial_lock_fh = None
+        try:
+            serial_lock_path = Path(args.serial_lock_path)
+            serial_lock_fh = serial_lock_path.open("w", encoding="utf-8")
+            try:
+                fcntl.flock(serial_lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                append_event(events_path, {
+                    "timestamp_utc": utc_now_iso(),
+                    "event_type": "SKIP_SERIAL_HELD",
+                    "lock_path": str(serial_lock_path),
+                })
+                return
+        except Exception:
+            pass  # lock file unavailable; proceed without arbitration
+
+        try:
+            _run_pass_inner(now, node_map)
+        finally:
+            if serial_lock_fh:
+                try:
+                    fcntl.flock(serial_lock_fh, fcntl.LOCK_UN)
+                    serial_lock_fh.close()
+                except Exception:
+                    pass
+
+    def _run_pass_inner(now: "dt.datetime", node_map: "dict[str, str]") -> None:
         # Respect MESH_ONLY window if requested.
         if args.connectivity_mode_file:
             mode_path = Path(args.connectivity_mode_file)
