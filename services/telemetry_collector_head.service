@@ -13,7 +13,7 @@ Environment=TRIAL_ID=trial-live
 Environment=NODE_ID=meshradiohead2
 Environment=HEAD_ID=meshradiohead2
 Environment=OUT_DIR=/home/pump/telemetry_head
-Environment=SERIAL_LOCK_PATH=/home/pump/telemetry_head/.serial.lock
+Environment=SERIAL_LOCK_PATH=/run/lock/manet_lora_serial.lock
 Environment=PYTHONPATH=/home/pump/.local/lib/python3.13/site-packages
 
 [Install]

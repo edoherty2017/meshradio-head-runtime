@@ -14,7 +14,7 @@ Environment=FALLBACK_ACK_FILE=/home/pump/telemetry_head/fallback_acks.jsonl
 Environment=MESHTASTIC_CLI=/home/pump/.venvs/meshtastic/bin/meshtastic
 Environment=MESHTASTIC_PORT=/dev/ttyUSB0
 Environment=MESHTASTIC_NODE_MAP_FILE=/home/pump/telemetry_head/meshtastic_node_map.json
-Environment=SERIAL_LOCK_PATH=/home/pump/telemetry_head/.serial.lock
+Environment=SERIAL_LOCK_PATH=/run/lock/manet_lora_serial.lock
 ExecStart=/usr/bin/python3 /home/pump/projects/manet/meshradio-head-runtime/scripts/meshtastic_fallback_worker.py --once --connectivity-mode-file ${CONNECTIVITY_MODE_FILE} --queue-path ${FALLBACK_COMMAND_QUEUE} --out-dir ${OUT_DIR} --ack-file ${FALLBACK_ACK_FILE} --node-map-file ${MESHTASTIC_NODE_MAP_FILE} --serial-lock-path ${SERIAL_LOCK_PATH}
 Nice=5
 IOSchedulingClass=best-effort

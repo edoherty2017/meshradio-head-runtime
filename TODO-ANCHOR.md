@@ -27,9 +27,9 @@ This anchor was pruned to active, execution-critical items only.
 - [x] `scripts/starlink_chrony_qc.py` — ClockErrorBound computation, QC CSV append
 - [x] `scripts/starlink_phase1_gate.py` — Phase 1 gate: ≥95% row alignment, 60min run, value ranges
 - [x] `services/starlink_raw_poller.service` + `services/starlink_window_aggregator.service`
-- [x] Deploy starlink-grpc-tools venv on HEAD Pi (`/home/pump/.venvs/starlink/`) — done 2026-05-20; `yagrc` installed, PYTHONPATH set in service
-- [x] Run Phase 1 gate: `python3 scripts/starlink_phase1_gate.py` after 60 continuous minutes with dish on — PASSED 2026-05-20 (571 rows, 97.54% alignment, 264.7 min run)
-- [x] Run Phase 2: `python3 scripts/merge_starlink_into_telemetry.py` and verify airmap_live_trial.py produces satellite artifacts — done 2026-05-20; satellite_timebin_metrics.csv and satellite_outage_events.csv produced with real Starlink data
+- [ ] Deploy starlink-grpc-tools venv on HEAD Pi (`/home/pump/.venvs/starlink/`)
+- [ ] Run Phase 1 gate: `python3 scripts/starlink_phase1_gate.py` after 60 continuous minutes with dish on
+- [ ] Run Phase 2: `python3 scripts/merge_starlink_into_telemetry.py` and verify airmap_live_trial.py produces satellite artifacts
 
 ## Completion condition for this repo
-- [x] Head runtime can: (1) collect schema-valid telemetry, (2) survive control-plane outages, (3) send fallback commands over Meshtastic, and (4) expose Starlink satellite telemetry state for analysis.
+- [ ] Head runtime can: (1) collect schema-valid telemetry, (2) survive control-plane outages, (3) send fallback commands over Meshtastic, and (4) expose Starlink satellite telemetry state for analysis.
