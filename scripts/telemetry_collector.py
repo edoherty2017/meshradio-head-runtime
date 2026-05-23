@@ -75,7 +75,7 @@ def on_receive(packet, interface) -> None:
             pos   = decoded.get("position", {})
             lat_i = pos.get("latitudeI")
             lon_i = pos.get("longitudeI")
-            alt   = pos.get("altitudeHae") or pos.get("altitude")
+            alt   = pos.get("altitudeHae") if pos.get("altitudeHae") is not None else pos.get("altitude")
             prec  = pos.get("PDOP") or pos.get("hdop")
             # Always emit lat/lon/elev_m for POSITION packets so downstream can
             # distinguish "got packet, no fix yet" from "not a position packet."
