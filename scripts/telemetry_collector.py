@@ -90,7 +90,7 @@ def on_receive(packet, interface) -> None:
             dm  = tel.get("deviceMetrics", {})
             if dm.get("batteryLevel") is not None:
                 rec["battery_pct"] = int(dm["batteryLevel"])
-            if dm.get("voltage") is not None:
+            if dm.get("voltage") is not None and dm["voltage"] > 0:
                 rec["battery_mv"] = int(round(dm["voltage"] * 1000))
             if dm.get("channelUtilization") is not None:
                 rec["channel_util_pct"] = round(float(dm["channelUtilization"]), 3)
