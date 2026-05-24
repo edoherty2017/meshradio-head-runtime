@@ -47,9 +47,11 @@ def on_receive(packet, interface) -> None:
     try:
         decoded  = packet.get("decoded", {})
         portnum  = str(decoded.get("portnum", "UNKNOWN_APP"))
-        rssi     = packet.get("rxRssi")
-        snr      = packet.get("rxSnr")
-        from_id  = packet.get("fromId")
+        rssi      = packet.get("rxRssi")
+        snr       = packet.get("rxSnr")
+        from_id   = packet.get("fromId")
+        hop_limit = packet.get("hopLimit")
+        hop_start = packet.get("hopStart")  # absent on older firmware; default 3
 
         rec: dict = {
             "timestamp_utc":  ts(),
@@ -70,6 +72,14 @@ def on_receive(packet, interface) -> None:
             rec["rssi_dbm"] = int(rssi)
         if snr is not None:
             rec["snr_db"] = float(snr)
+        if hop_limit is not None:
+            rec["hop_limit"] = int(hop_limit)
+        if hop_start is not None:
+            rec["hop_start"] = int(hop_start)
+        # hops_away = relays taken; if hop_start absent assume Meshtastic default of 3
+        if hop_limit is not None:
+            hs = int(hop_start) if hop_start is not None else 3
+            rec["hops_away"] = max(0, hs - int(hop_limit))
 
         if "POSITION" in portnum:
             pos   = decoded.get("position", {})
