@@ -7,8 +7,8 @@ This anchor was pruned to active, execution-critical items only.
 ## [P1] Keep runtime stable and commandable
 - [x] Connectivity-mode and control-plane outage events emitted by spool.
 - [x] Meshtastic fallback queue worker deployed with retries/backoff/TTL/ACK lifecycle.
-- [x] Add deterministic serial arbitration policy between collector and Meshtastic CLI worker (no port contention). Lockfile at `SERIAL_LOCK_PATH` (`/run/lock/manet_lora_serial.lock`); collector holds LOCK_EX while interface open; worker logs SKIP_SERIAL_HELD if blocked.
-- [x] Produce repeatable PASS/FAIL probe script for serial ownership + worker send/ack path. → `scripts/serial_probe.py`
+- [x] Enforce one serial owner: collector holds `/run/manet/lora_serial.lock`; fallback worker sends through `/run/manet/collector.sock`.
+- [ ] Re-run a hardware PASS/FAIL probe for collector IPC send plus authenticated ACK after deploying the hardened units. `--dry-run` is not evidence.
 
 ## [P2] Telemetry schema parity + readiness evidence
 - [x] Collector parser integrity counters present (`checksum_ok`, `checksum_bad`, `malformed_frame`).
@@ -27,9 +27,13 @@ This anchor was pruned to active, execution-critical items only.
 - [x] `scripts/starlink_chrony_qc.py` — ClockErrorBound computation, QC CSV append
 - [x] `scripts/starlink_phase1_gate.py` — Phase 1 gate: ≥95% row alignment, 60min run, value ranges
 - [x] `services/starlink_raw_poller.service` + `services/starlink_window_aggregator.service`
-- [x] Deploy starlink-grpc-tools venv on HEAD Pi (`/home/pump/.venvs/starlink/`) — done 2026-05-20
-- [x] Run Phase 1 gate: `python3 scripts/starlink_phase1_gate.py` after 60 continuous minutes with dish on — PASS 2026-05-20 (571 rows, 97.54% alignment, 264.7 min)
-- [x] Run Phase 2: `python3 scripts/merge_starlink_into_telemetry.py` and verify airmap_live_trial.py produces satellite artifacts — PASS 2026-05-20
+- [ ] Deploy the reviewed Starlink dependency into the hardened root-owned paths
+  (`/opt/manet/vendor/starlink-grpc-tools` and `/opt/manet/venvs/starlink`) and
+  record the exact commit plus installed-package manifest.
+- [ ] Re-run Phase 1 gate after deploying the hardened collector. The 2026-05-20 result is invalidated because the old gate could pass aligned RPC-error heartbeats.
+- [ ] Re-run Phase 2 only against a new hardened Phase 1 PASS. The 2026-05-20
+  artifact-production check does not establish that its source rows were real
+  Starlink measurements.
 
 ## Completion condition for this repo
-- [x] Head runtime can: (1) collect schema-valid telemetry, (2) survive control-plane outages, (3) send fallback commands over Meshtastic, and (4) expose Starlink satellite telemetry state for analysis.
+- [ ] Re-establish completion with a canonical schema report, real IPC send/authenticated ACK, transfer-failure drill, and hardened Starlink Phase 1 PASS.

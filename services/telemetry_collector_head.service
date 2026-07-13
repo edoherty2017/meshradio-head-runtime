@@ -1,20 +1,44 @@
 [Unit]
-Description=Meshradio HEAD Telemetry Collector (serial -> jsonl)
+Description=Meshradio HEAD telemetry collector and sole LoRa serial owner
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /home/pump/projects/manet/meshradio-head-runtime/scripts/telemetry_collector.py
-Restart=always
-RestartSec=2
+User=pump
+Group=pump
+SupplementaryGroups=dialout
+Environment=OUT_DIR=/home/pump/telemetry_head
 Environment=LORA_PORT=/dev/lora_radio
-Environment=LORA_BAUD=115200
 Environment=TRIAL_ID=trial-live
 Environment=NODE_ID=meshradiohead2
 Environment=HEAD_ID=meshradiohead2
-Environment=OUT_DIR=/home/pump/telemetry_head
-Environment=SERIAL_LOCK_PATH=/run/lock/manet_lora_serial.lock
-Environment=PYTHONPATH=/home/pump/.local/lib/python3.13/site-packages
+Environment=SERIAL_LOCK_PATH=/run/manet/lora_serial.lock
+Environment=COLLECTOR_IPC_SOCKET=/run/manet/collector.sock
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=-/etc/manet/head.env
+ExecStart=/usr/bin/python3 /opt/manet/head/scripts/telemetry_collector.py
+Restart=always
+RestartSec=2
+RuntimeDirectory=manet
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/pump/telemetry_head /run/manet
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target

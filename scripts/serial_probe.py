@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PASS/FAIL probe for serial port ownership and fallback worker send path.
+"""PASS/FAIL probe for sole serial ownership and collector IPC health.
 
 Runs ON the Pi HEAD node. Exits 0 (PASS) if all checks clear, 1 (FAIL) otherwise.
 
@@ -8,10 +8,10 @@ Checks:
   - collector service is active (holds the lock expectedly)
   - serial lock state matches collector state
   - fallback worker timer is active
-  - dry-run send path executes without error
+  - collector Unix socket responds without transmitting a packet
 
 Usage:
-  python3 scripts/serial_probe.py [--dry-run-send]
+  python3 scripts/serial_probe.py
 """
 from __future__ import annotations
 
@@ -20,12 +20,14 @@ import datetime as dt
 import fcntl
 import json
 import os
+import socket
 import subprocess
 import sys
 from pathlib import Path
 
 SERIAL_PORT      = os.environ.get("LORA_PORT",        "/dev/lora_radio")
-SERIAL_LOCK_PATH = os.environ.get("SERIAL_LOCK_PATH", "/run/lock/manet_lora_serial.lock")
+SERIAL_LOCK_PATH = os.environ.get("SERIAL_LOCK_PATH", "/run/manet/lora_serial.lock")
+IPC_SOCKET_PATH  = os.environ.get("COLLECTOR_IPC_SOCKET", "/run/manet/collector.sock")
 OUT_DIR          = os.environ.get("OUT_DIR",          "/home/pump/telemetry_head")
 
 
@@ -40,7 +42,7 @@ def lock_held(path: str) -> bool | None:
         return None  # lock file absent — uncertain
     fh = None
     try:
-        fh = p.open("w")
+        fh = p.open("a+")
         fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
         fcntl.flock(fh, fcntl.LOCK_UN)
         return False
@@ -56,31 +58,23 @@ def lock_held(path: str) -> bool | None:
                 pass
 
 
-def probe_dry_run_send(out_dir: str, worker_script: str | None) -> dict:
-    if not worker_script:
-        # Auto-locate relative to this file
-        here = Path(__file__).resolve().parent
-        worker_script = str(here / "meshtastic_fallback_worker.py")
-    if not Path(worker_script).exists():
-        return {"ok": False, "error": f"worker script not found: {worker_script}"}
-    cmd = [
-        sys.executable, worker_script,
-        "--dry-run", "--once",
-        "--out-dir", out_dir,
-        "--queue-path", str(Path(out_dir) / "probe_dryrun_queue.jsonl"),
-    ]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-    return {
-        "ok": r.returncode == 0,
-        "returncode": r.returncode,
-        "stderr": r.stderr[-500:] if r.stderr else "",
-    }
+def probe_ipc() -> dict:
+    """Use an unsupported operation as a non-transmitting liveness request."""
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(3)
+            client.connect(IPC_SOCKET_PATH)
+            client.sendall(b'{"operation":"health_check"}\n')
+            raw = client.recv(4096)
+        response = json.loads(raw.split(b"\n", 1)[0].decode("utf-8"))
+        ok = response.get("ok") is False and response.get("error") == "unsupported_operation"
+        return {"ok": ok, "socket": IPC_SOCKET_PATH, "response": response, "packet_transmitted": False}
+    except Exception as exc:
+        return {"ok": False, "socket": IPC_SOCKET_PATH, "error": f"{type(exc).__name__}: {exc}"}
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dry-run-send", action="store_true", help="Also probe the worker dry-run send path")
-    ap.add_argument("--worker-script", default="", help="Path to meshtastic_fallback_worker.py")
     ap.add_argument("--out-dir", default=OUT_DIR)
     args = ap.parse_args()
 
@@ -138,10 +132,8 @@ def main() -> int:
         "state": sync_state,
     })
 
-    # 6. Optional: dry-run send path
-    if args.dry_run_send:
-        dr = probe_dry_run_send(args.out_dir, args.worker_script or None)
-        results.append({"check": "worker_dry_run_send", **dr})
+    # 6. Non-transmitting IPC liveness request
+    results.append({"check": "collector_ipc_health", **probe_ipc()})
 
     overall = all(r["ok"] for r in results)
     report = {

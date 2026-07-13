@@ -1,129 +1,69 @@
 # MeshRadio Head Runtime
 
-Runtime code/config for the carried HEAD node.
+Runtime collection, fallback control, Starlink telemetry, and verified evidence
+sync for the carried HEAD node.
 
-## Includes
-- telemetry collection (`scripts/telemetry_collector.py`)
-- store-and-forward sync (`scripts/telemetry_sync_spool.sh`)
-- fallback command queue helper (`scripts/fallback_command_queue.py`)
-- Meshtastic fallback worker (`scripts/meshtastic_fallback_worker.py`)
-- head-specific systemd services (`services/*.service`, `services/*.timer`)
+## Security and ownership model
 
-## Offline/mobile behavior
-- Telemetry collection is local-first (serial -> local `raw/` + `jsonl/`).
-- If the upstream IP link drops, collection continues locally.
-- Sync retries automatically on timer; data is forwarded once connectivity returns.
-- Sync spool now emits connectivity transition events to `connectivity_events.jsonl` with:
-  - `CONNECTIVITY_MODE_CHANGE` (`IP_FULL`, `IP_DEGRADED`, `MESH_ONLY`)
-  - `CONTROL_PLANE_DOWN_START`
-  - `CONTROL_PLANE_DOWN_END`
+- Executable code is installed root-owned under `/opt/manet/head/scripts`.
+- Services run unprivileged as `pump`; the collector additionally receives the
+  `dialout` group needed for `/dev/lora_radio`.
+- The collector is the sole serial owner. Fallback commands are submitted over
+  `/run/manet/collector.sock`; the worker never opens the radio in the normal
+  deployment.
+- Mutable evidence remains under `/home/pump/telemetry_head` and is never
+  deleted by provisioning or sync.
+- SSH sync uses `/etc/manet/ssh_known_hosts` with strict host verification.
+- Site-specific values belong in root-owned `/etc/manet/head.env`. In
+  particular, set `REMOTE_TARGET=user@host:/absolute/ingest/path`; no sync
+  destination is embedded in a unit file.
 
-## Deploy sync spool
-Copy files to target Pi and enable timer:
+## Evidence synchronized upstream
 
-```bash
-sudo install -m 0755 scripts/telemetry_sync_spool.sh /home/pump/telemetry_sync_spool.sh
-sudo install -m 0644 services/telemetry_sync_spool.service /etc/systemd/system/telemetry_sync_spool.service
-sudo install -m 0644 services/telemetry_sync_spool.timer /etc/systemd/system/telemetry_sync_spool.timer
-sudo systemctl daemon-reload
-sudo systemctl enable --now telemetry_sync_spool.timer
-sudo systemctl start telemetry_sync_spool.service
-sudo systemctl status telemetry_sync_spool.timer --no-pager
-```
+The spool transfers `jsonl/`, `raw/`, `starlink/`, connectivity transitions,
+fallback lifecycle events/queue/ACKs, and the node map. `IP_FULL` is recorded
+only after every requested evidence transfer succeeds. Reachable SSH with a
+failed transfer is `IP_DEGRADED`; an unreachable host is `MESH_ONLY`.
 
-## Fallback command queue (Meshtastic bridge handoff)
-Use this helper to queue lightweight control commands when in `MESH_ONLY` windows:
+## Fallback command path
+
+Queue a small command (160 UTF-8 bytes by default):
 
 ```bash
-python3 scripts/fallback_command_queue.py enqueue \
-  --target meshhikernode1 \
-  --command "status" \
-  --ttl-sec 600 \
-  --mode MESH_ONLY
-
-# target can be a broadcast keyword (broadcast/all/*/^all),
-# a direct node id (!db51af80), or an alias resolved via --node-map-file.
-
-python3 scripts/fallback_command_queue.py list --only-pending
-```
-
-## Meshtastic fallback worker (queue consumer)
-The worker consumes queued commands, sends via Meshtastic transport adapter, and updates command lifecycle:
-
-- `queued -> sent` on successful transport submission
-- `sent -> acked` on ACK ingestion
-- `queued|sent -> expired` when TTL is exceeded
-- retries with exponential backoff for transient send failures
-
-### One-shot dry-run smoke
-```bash
-python3 scripts/meshtastic_fallback_worker.py \
-  --once \
-  --dry-run \
+python3 /opt/manet/head/scripts/fallback_command_queue.py \
   --queue-path /home/pump/telemetry_head/fallback_commands.jsonl \
-  --out-dir /home/pump/telemetry_head \
-  --connectivity-mode-file /home/pump/telemetry_head/connectivity_mode.state \
-  --ack-file /home/pump/telemetry_head/fallback_acks.jsonl
+  enqueue --target '!db51af80' --command status --ttl-sec 600
 ```
 
-### Real Meshtastic CLI mode
-If `meshtastic` CLI is in `PATH`, the worker uses it automatically (or set `--meshtastic-cli /path/to/meshtastic`).
-Use `--meshtastic-extra-args` for adapter-specific flags.
+Queue updates use a shared lock and atomic replacement. Missing connectivity
+state, unresolved destinations, unavailable IPC, oversized payloads, and
+malformed queue records fail closed. `--dry-run` is explicit and must never be
+used as transmission evidence.
 
-### Target resolution (alias -> node id mapping)
-Worker supports alias mapping to avoid Meshtastic `--dest` failures from logical names.
+ACK-file records require `FALLBACK_ACK_HMAC_KEY_FILE` in `head.env`. The
+`auth_tag` is lowercase HMAC-SHA256 over canonical compact JSON of the full ACK
+object with `auth_tag` omitted (keys sorted). RX-log ACK text is ignored unless
+the unsafe development-only flag is explicitly passed.
 
-Provide a JSON map file with either shape:
+## Deployment and verification
 
-```json
-{
-  "aliases": {
-    "meshhikernode1": "!db51af80",
-    "meshhikernode2": "!c0ffee12"
-  }
-}
-```
+Run `ops/provision_head2.sh` with a reviewed `STARLINK_GRPC_COMMIT`. The
+provisioner pins that checkout, records the resolved commit and Python package
+freeze under `/opt/manet/software-manifest`, preserves evidence, and refuses to
+enable sync until a destination and verified host key exist.
 
-or:
+Provisioning also fails unless the existing system Python can import
+`meshtastic.serial_interface`, `pubsub`, and `serial`. It records the Python
+version and the installed `meshtastic`, `pypubsub`, and `pyserial` distribution
+versions in the runtime manifest. It does not silently install or upgrade this
+stack; review those recorded versions as part of each deployment.
 
-```json
-{
-  "nodes": [
-    {"name": "meshhikernode1", "id": "!db51af80"}
-  ]
-}
-```
-
-Then run worker with `--node-map-file /home/pump/telemetry_head/meshtastic_node_map.json`
-(or env `MESHTASTIC_NODE_MAP_FILE`).
-
-If a target is unresolved, worker records `COMMAND_TARGET_UNRESOLVED` and marks that command `error`.
-
-### ACK ingestion paths
-- Manual ACK JSONL file (`--ack-file`): entries containing `command_id`
-- RX log parse (`--rx-log`): lines containing both `ACK` and command IDs like `cmd-abcdef123456`
-
-### Structured worker events
-Worker appends JSONL to:
-- `/home/pump/telemetry_head/fallback_worker_events.jsonl`
-
-Event types include:
-- `COMMAND_SENT`
-- `COMMAND_SEND_FAILED`
-- `ACK_INGESTED`
-- `COMMAND_EXPIRED`
-- `WORKER_PASS_SUMMARY`
-- `SKIP_MODE_MISMATCH`
-- `SKIP_LOCK_HELD`
-
-### systemd deploy
 ```bash
-sudo install -m 0755 scripts/meshtastic_fallback_worker.py /home/pump/meshradio-head-runtime/scripts/meshtastic_fallback_worker.py
-sudo install -m 0644 services/meshtastic_fallback_worker.service /etc/systemd/system/meshtastic_fallback_worker.service
-sudo install -m 0644 services/meshtastic_fallback_worker.timer /etc/systemd/system/meshtastic_fallback_worker.timer
-sudo systemctl daemon-reload
-sudo systemctl enable --now meshtastic_fallback_worker.timer
-sudo systemctl start meshtastic_fallback_worker.service
+python3 /opt/manet/head/scripts/head_readiness_report.py
+python3 /opt/manet/head/scripts/starlink_phase1_gate.py
 ```
 
-This worker is mode-gated for MESH_ONLY windows by reading `connectivity_mode.state`.
+Readiness checks services, sole serial ownership/IPC, recent parseable records,
+real (non-heartbeat) Starlink measurement state, connectivity-state consistency,
+last successful sync, and free storage. The canonical full-stream schema gate
+is `resilient-emergency-manets/scripts/validation/schema_validate.py`.

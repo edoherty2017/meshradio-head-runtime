@@ -1,11 +1,36 @@
 [Unit]
-Description=Meshradio HEAD store-and-forward sync
+Description=Meshradio HEAD verified store-and-forward evidence sync
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
 User=pump
 Group=pump
-ExecStart=/usr/bin/bash /home/pump/projects/manet/meshradio-head-runtime/scripts/telemetry_sync_spool.sh
 Environment=OUT_DIR=/home/pump/telemetry_head
-Environment=REMOTE_TARGET=doher@100.102.102.63:/home/doher/manet_ingest/meshradiohead2
+Environment=NODE_ID=meshradiohead2
+EnvironmentFile=-/etc/manet/head.env
+ExecStart=/usr/bin/bash /opt/manet/head/scripts/telemetry_sync_spool.sh
+TimeoutStartSec=90
+RuntimeDirectory=manet
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/pump/telemetry_head /run/manet
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

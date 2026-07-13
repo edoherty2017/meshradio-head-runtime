@@ -1,5 +1,5 @@
 [Unit]
-Description=Starlink gRPC raw telemetry poller (15s interval)
+Description=Starlink gRPC raw telemetry poller
 After=network-online.target
 Wants=network-online.target
 
@@ -12,10 +12,32 @@ Environment=TRIAL_ID=trial-live
 Environment=NODE_ID=meshradiohead2
 Environment=STARLINK_TARGET=192.168.100.1:9200
 Environment=STARLINK_POLL_S=15
-Environment=PYTHONPATH=/home/pump/projects/manet/starlink-grpc-tools
-ExecStart=/home/pump/.venvs/starlink/bin/python3 /home/pump/projects/manet/meshradio-head-runtime/scripts/starlink_raw_poller.py
+Environment=STARLINK_RPC_TIMEOUT_S=10
+Environment=CHRONY_SAMPLE_EVERY_POLLS=4
+Environment=PYTHONPATH=/opt/manet/vendor/starlink-grpc-tools
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=-/etc/manet/head.env
+ExecStartPre=/usr/bin/test -x /usr/bin/chronyc
+ExecStart=/opt/manet/venvs/starlink/bin/python3 /opt/manet/head/scripts/starlink_raw_poller.py
 Restart=always
 RestartSec=5
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/pump/telemetry_head
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 StandardOutput=journal
 StandardError=journal
 

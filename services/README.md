@@ -1,25 +1,19 @@
-Place systemd unit files here (head-only services).
+# HEAD systemd units
 
-## Meshtastic fallback worker units
+Install these units root-owned in `/etc/systemd/system` via
+`ops/provision_head2.sh`. They execute root-owned code from `/opt/manet/head`,
+run as `pump`, use `/run/manet` for locks/IPC, and write only to the evidence
+directory.
 
-Install and enable the timer-driven worker:
+Site configuration belongs in `/etc/manet/head.env`; do not edit unit files to
+embed credentials, destinations, or user-writable Python paths. SSH sync is not
+ready until `/etc/manet/ssh_known_hosts` contains an independently verified key.
+
+After changing configuration:
 
 ```bash
-sudo install -m 0644 services/meshtastic_fallback_worker.service /etc/systemd/system/meshtastic_fallback_worker.service
-sudo install -m 0644 services/meshtastic_fallback_worker.timer /etc/systemd/system/meshtastic_fallback_worker.timer
 sudo systemctl daemon-reload
-sudo systemctl enable --now meshtastic_fallback_worker.timer
+sudo systemctl restart telemetry_collector_head.service
+sudo systemctl start telemetry_sync_spool.service
 sudo systemctl start meshtastic_fallback_worker.service
-sudo systemctl status meshtastic_fallback_worker.timer --no-pager
-```
-
-Override environment values with a drop-in:
-
-```bash
-sudo systemctl edit meshtastic_fallback_worker.service
-# [Service]
-# Environment=FALLBACK_COMMAND_QUEUE=/home/pump/telemetry_head/fallback_commands.jsonl
-# Environment=CONNECTIVITY_MODE_FILE=/home/pump/telemetry_head/connectivity_mode.state
-# Environment=FALLBACK_ACK_FILE=/home/pump/telemetry_head/fallback_acks.jsonl
-# Environment=MESHTASTIC_NODE_MAP_FILE=/home/pump/telemetry_head/meshtastic_node_map.json
 ```

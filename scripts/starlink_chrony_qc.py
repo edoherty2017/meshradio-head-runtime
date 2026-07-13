@@ -11,8 +11,9 @@ If ClockErrorBound > MAX_CLOCK_ERROR_S (default 5.0 s), the row is flagged
 as temporally unreliable. Downstream pipeline excludes flagged rows from
 causal claims.
 
-Typically called from starlink_raw_poller.py once per poll cycle, or run
-standalone for diagnostics.
+Called periodically by starlink_raw_poller.py (four polls by default), or run
+standalone for diagnostics. A non-"Normal" leap state fails clock_ok even when
+the numeric bound is small.
 
 chronyc -c tracking CSV fields (0-indexed):
   0  Reference ID (hex)
@@ -36,6 +37,7 @@ import csv
 import datetime as dt
 import io
 import json
+import math
 import os
 import subprocess
 import sys
@@ -43,6 +45,8 @@ from pathlib import Path
 
 OUT_DIR           = os.environ.get("OUT_DIR", "/home/pump/telemetry_head")
 MAX_CLOCK_ERROR_S = float(os.environ.get("MAX_CLOCK_ERROR_S", "5.0"))
+if not math.isfinite(MAX_CLOCK_ERROR_S) or MAX_CLOCK_ERROR_S <= 0:
+    raise SystemExit("MAX_CLOCK_ERROR_S must be finite and greater than zero")
 
 QC_CSV = Path(OUT_DIR) / "starlink" / "qc" / "starlink_collection_health.csv"
 
@@ -85,8 +89,17 @@ def sample_chrony() -> dict:
         root_dispersion = float(fields[11])
         leap_status     = fields[13].strip() if len(fields) > 13 else ""
 
+        numeric_values = (sys_offset, last_offset, root_delay, root_dispersion)
+        if not all(math.isfinite(value) for value in numeric_values):
+            return {"sampled_at_utc": now, "error": "chronyc returned non-finite numeric values"}
+        if root_delay < 0 or root_dispersion < 0:
+            return {"sampled_at_utc": now, "error": "chronyc returned negative delay/dispersion"}
         clock_error_bound = abs(last_offset) + root_dispersion + 0.5 * root_delay
-        clock_ok = clock_error_bound <= MAX_CLOCK_ERROR_S
+        clock_ok = (
+            clock_error_bound <= MAX_CLOCK_ERROR_S
+            and leap_status.strip().lower() == "normal"
+            and stratum > 0
+        )
 
         return {
             "sampled_at_utc":        now,
@@ -116,6 +129,8 @@ def append_qc_row(row: dict) -> None:
         if write_header:
             writer.writeheader()
         writer.writerow(row)
+        f.flush()
+        os.fsync(f.fileno())
 
 
 def main() -> int:
@@ -126,7 +141,7 @@ def main() -> int:
     ok = row.get("clock_ok")
     if ok is False:
         ceb = row.get("clock_error_bound_s", "?")
-        print(f"WARN: ClockErrorBound={ceb}s exceeds {MAX_CLOCK_ERROR_S}s — timestamps unreliable",
+        print(f"WARN: clock integrity failed (bound={ceb}s, limit={MAX_CLOCK_ERROR_S}s, leap={row.get('leap_status')!r}) — timestamps unreliable",
               file=sys.stderr)
         return 1
     if "error" in row:
