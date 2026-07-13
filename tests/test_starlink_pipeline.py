@@ -32,6 +32,9 @@ def test_packet_loss_uses_fractional_drop_rates():
             "node_id": "meshradiohead2",
             "satellite_link_status": "connected",
             "_measurement_status": "ok",
+            "_heartbeat": False,
+            "_clock_ok": True,
+            "_poll_interval_s": 15,
             "_raw_latencies": [20, 30, 40, 50],
             "_raw_drops": [0.0, 0.25, 0.5, 1.0],
         }
@@ -51,6 +54,9 @@ def test_aggregator_refuses_to_relabel_wrong_identity():
             "node_id": "meshradiohead2",
             "satellite_link_status": "connected",
             "_measurement_status": "ok",
+            "_heartbeat": False,
+            "_clock_ok": True,
+            "_poll_interval_s": 15,
             "_raw_latencies": [],
             "_raw_drops": [],
         }
@@ -60,6 +66,30 @@ def test_aggregator_refuses_to_relabel_wrong_identity():
 
     with pytest.raises(ValueError, match="identity mismatch"):
         aggregator.aggregate_window(rows)
+
+
+def test_unknown_state_does_not_contaminate_derived_metrics():
+    rows = [{
+        "poll_timestamp_utc": "2026-07-13T12:00:00Z",
+        "trial_id": "trial-live",
+        "node_id": "meshradiohead2",
+        "satellite_link_status": "unknown",
+        "satellite_down_mbps": 999.0,
+        "_measurement_status": "ok",
+        "_heartbeat": False,
+        "_clock_ok": True,
+        "_poll_interval_s": 15,
+        "_raw_latencies": [10.0],
+        "_raw_drops": [0.0],
+    }]
+
+    result = aggregator.aggregate_window(rows)
+
+    assert result["satellite_link_status"] == "unknown"
+    assert result["satellite_down_mbps"] is None
+    assert result["satellite_rtt_ms_p50"] is None
+    assert result["_measurement_success_count"] == 0
+    assert result["_unusable_measurement_count"] == 1
 
 
 def test_tail_does_not_consume_partial_final_record(tmp_path):

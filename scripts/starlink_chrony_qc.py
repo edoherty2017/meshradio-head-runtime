@@ -8,8 +8,8 @@ artifacts/starlink/qc/starlink_collection_health.csv.
 ClockErrorBound = |LastOffset| + RootDispersion + (0.5 × RootDelay)
 
 If ClockErrorBound > MAX_CLOCK_ERROR_S (default 5.0 s), the row is flagged
-as temporally unreliable. Downstream pipeline excludes flagged rows from
-causal claims.
+as temporally unreliable. Derived windows retain clock-quality counts, and the
+strict merge rejects windows below its 95% acceptable-clock threshold.
 
 Called periodically by starlink_raw_poller.py (four polls by default), or run
 standalone for diagnostics. A non-"Normal" leap state fails clock_ok even when

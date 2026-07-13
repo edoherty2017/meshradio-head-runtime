@@ -169,33 +169,85 @@ def main() -> int:
 
     # 2. Require the actual aggregator contract; missing fields must not turn
     # into a superficially successful all-null enrichment.
-    quality_columns = ["poll_count", "_measurement_success_count", "_heartbeat_count"]
+    quality_columns = [
+        "window_start_utc",
+        "window_seconds",
+        "observed_poll_span_seconds",
+        "poll_count",
+        "_expected_poll_count",
+        "_measurement_success_count",
+        "_unusable_measurement_count",
+        "_heartbeat_count",
+        "_clock_ok_count",
+        "_clock_sample_count",
+    ]
     missing_starlink = set(SATELLITE_COLS + quality_columns) - set(starlink_df.columns)
     if missing_starlink:
         print(f"ERROR: Starlink derived input missing columns: {sorted(missing_starlink)}", file=sys.stderr)
         return 1
-    invalid_quality = (
-        pd.to_numeric(starlink_df["poll_count"], errors="coerce").isna()
-        | pd.to_numeric(starlink_df["_measurement_success_count"], errors="coerce").isna()
-        | pd.to_numeric(starlink_df["_heartbeat_count"], errors="coerce").isna()
-        | (pd.to_numeric(starlink_df["poll_count"], errors="coerce") <= 0)
-        | (pd.to_numeric(starlink_df["_measurement_success_count"], errors="coerce") <= 0)
-        | ~starlink_df["satellite_link_status"].isin({"connected", "degraded", "disconnected"})
+    try:
+        starlink_df = coerce_utc(starlink_df, "window_start_utc")
+        # coerce_utc sorts by the requested field, so restore the merge sort.
+        starlink_df = starlink_df.sort_values(starlink_ts_col).reset_index(drop=True)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    invalid_quality = ~starlink_df["satellite_link_status"].isin(
+        {"connected", "degraded", "disconnected"}
     )
     if invalid_quality.any():
         print(f"ERROR: invalid/unmeasured Starlink windows: {int(invalid_quality.sum())}", file=sys.stderr)
         return 1
     for _, window in starlink_df.iterrows():
         poll_count = window["poll_count"]
+        expected_poll_count = window["_expected_poll_count"]
         success_count = window["_measurement_success_count"]
+        unusable_count = window["_unusable_measurement_count"]
         heartbeat_count = window["_heartbeat_count"]
+        clock_ok_count = window["_clock_ok_count"]
+        clock_sample_count = window["_clock_sample_count"]
         if any(
             isinstance(value, bool)
             or not isinstance(value, numbers.Integral)
             or value < 0
-            for value in (poll_count, success_count, heartbeat_count)
-        ) or success_count + heartbeat_count != poll_count:
+            for value in (
+                poll_count,
+                expected_poll_count,
+                success_count,
+                unusable_count,
+                heartbeat_count,
+                clock_ok_count,
+                clock_sample_count,
+            )
+        ):
             print("ERROR: inconsistent Starlink window quality counters", file=sys.stderr)
+            return 1
+        if (
+            poll_count <= 0
+            or expected_poll_count <= 0
+            or poll_count < expected_poll_count
+            or success_count + unusable_count != poll_count
+            or heartbeat_count > unusable_count
+            or clock_sample_count != poll_count
+            or clock_ok_count > clock_sample_count
+            or success_count / poll_count < 0.95
+            or clock_ok_count / clock_sample_count < 0.95
+        ):
+            print("ERROR: incomplete or low-quality Starlink window", file=sys.stderr)
+            return 1
+        window_seconds = window["window_seconds"]
+        observed_span = window["observed_poll_span_seconds"]
+        if (
+            isinstance(window_seconds, bool)
+            or not isinstance(window_seconds, numbers.Real)
+            or float(window_seconds) != 60.0
+            or isinstance(observed_span, bool)
+            or not isinstance(observed_span, numbers.Real)
+            or not math.isfinite(float(observed_span))
+            or not 0 <= float(observed_span) < float(window_seconds)
+            or window["window_start_utc"] > window[starlink_ts_col]
+        ):
+            print("ERROR: invalid Starlink window duration/timestamp contract", file=sys.stderr)
             return 1
     numeric_ranges = {
         "satellite_down_mbps": (0, 10000),

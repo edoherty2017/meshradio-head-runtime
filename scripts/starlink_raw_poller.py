@@ -154,7 +154,7 @@ def build_heartbeat(error_code: str = "") -> dict:
 def poll_once(ctx: "starlink_grpc.ChannelContext") -> dict:
     status = get_status_fields(ctx)
     if not status:
-        return build_heartbeat("status_data_failed")
+        raise ValueError("status_data returned no usable fields")
 
     # Connection state
     raw_state = status.get("state") or status.get("dish_state")

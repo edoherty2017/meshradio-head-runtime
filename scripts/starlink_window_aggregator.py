@@ -17,7 +17,14 @@ Field derivations (per spec):
                             NEVER interpolated from mean
   satellite_packet_loss_pct: mean per-second drop fraction × 100
   satellite_obstruction_pct: mean of non-null obstruction values
-  satellite_outage_seconds : count of seconds where drop==1 or status==disconnected
+  satellite_outage_seconds : bounded sample-derived estimate from full drops or
+                             explicit disconnected poll states; not an
+                             independently timed outage duration
+
+Only non-heartbeat rows with a recognized link state contribute metrics.
+Derived quality counters retain measurement, heartbeat, expected-poll, and
+clock coverage so the merge can reject incomplete or temporally unreliable
+windows instead of enriching telemetry with them.
 """
 from __future__ import annotations
 
@@ -97,19 +104,55 @@ def aggregate_window(rows: list[dict]) -> dict:
     fallback_latencies: list[float] = []
     outage_seconds             = 0
     heartbeat_count            = 0
+    measurement_success_count  = 0
+    clock_ok_count             = 0
+    poll_intervals: set[int]   = set()
 
     for row in rows:
         status = row.get("satellite_link_status", "unknown")
         if status not in {"connected", "degraded", "disconnected", "unknown"}:
             raise ValueError(f"invalid satellite_link_status: {status!r}")
-        statuses.append(status)
-        if row.get("_measurement_status") != "ok" or row.get("_heartbeat"):
+        measurement_status = row.get("_measurement_status")
+        heartbeat = row.get("_heartbeat")
+        clock_ok = row.get("_clock_ok")
+        poll_interval = row.get("_poll_interval_s")
+        if measurement_status not in {"ok", "error"}:
+            raise ValueError(f"invalid _measurement_status: {measurement_status!r}")
+        if not isinstance(heartbeat, bool):
+            raise ValueError(f"invalid _heartbeat flag: {heartbeat!r}")
+        if not isinstance(clock_ok, bool):
+            raise ValueError(f"invalid _clock_ok flag: {clock_ok!r}")
+        if (
+            isinstance(poll_interval, bool)
+            or not isinstance(poll_interval, int)
+            or not 1 <= poll_interval < 900
+        ):
+            raise ValueError(f"invalid _poll_interval_s: {poll_interval!r}")
+        poll_intervals.add(poll_interval)
+        if heartbeat:
             heartbeat_count += 1
+        if clock_ok:
+            clock_ok_count += 1
 
-        raw_lats  = row.get("_raw_latencies") or []
-        raw_drops = row.get("_raw_drops") or []
+        measurement_success = (
+            measurement_status == "ok"
+            and not heartbeat
+            and status in {"connected", "degraded", "disconnected"}
+        )
+        if measurement_success:
+            measurement_success_count += 1
+            statuses.append(status)
+
+        raw_lats = row.get("_raw_latencies")
+        raw_drops = row.get("_raw_drops")
+        if not isinstance(raw_lats, list) or not isinstance(raw_drops, list):
+            raise ValueError("Starlink latency/drop arrays must be lists")
         if len(raw_lats) != len(raw_drops):
             raise ValueError("Starlink latency/drop arrays have different lengths")
+        if not measurement_success:
+            # Unknown/error rows prove collector activity, not a usable link
+            # measurement. Do not let their numerics contaminate an aggregate.
+            continue
 
         # Count outage seconds: rows where disconnected OR all drops==1
         if status == "disconnected":
@@ -189,6 +232,11 @@ def aggregate_window(rows: list[dict]) -> dict:
     # Clamp outage seconds to window size
     outage_seconds = min(outage_seconds, WINDOW_S)
 
+    if len(poll_intervals) != 1:
+        raise ValueError(f"mixed Starlink poll intervals in one window: {sorted(poll_intervals)}")
+    poll_interval = next(iter(poll_intervals))
+    expected_poll_count = max(1, math.ceil(WINDOW_S / poll_interval))
+
     return {
         "window_start_utc":         rows[0].get("poll_timestamp_utc"),
         "window_end_utc":           rows[-1].get("poll_timestamp_utc"),
@@ -208,8 +256,12 @@ def aggregate_window(rows: list[dict]) -> dict:
         "_sample_count_total":       total_samples,
         "_sample_count_valid_latency": len(all_latencies),
         "_dropped_sample_equivalent": round(dropped_equivalent, 6),
-        "_measurement_success_count": len(rows) - heartbeat_count,
-        "_heartbeat_count":            heartbeat_count,
+        "_expected_poll_count":         expected_poll_count,
+        "_measurement_success_count":   measurement_success_count,
+        "_unusable_measurement_count":  len(rows) - measurement_success_count,
+        "_heartbeat_count":             heartbeat_count,
+        "_clock_ok_count":              clock_ok_count,
+        "_clock_sample_count":          len(rows),
     }
 
 
