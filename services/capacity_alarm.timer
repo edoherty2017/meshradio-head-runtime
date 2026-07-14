@@ -1,0 +1,11 @@
+[Unit]
+Description=Check HEAD storage capacity every 5 minutes
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=5min
+Unit=capacity_alarm.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

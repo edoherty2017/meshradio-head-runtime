@@ -19,10 +19,96 @@ import time
 from pathlib import Path
 from typing import Any
 
+# Make sibling modules importable whether this file is run as a script or loaded
+# by path (e.g. importlib in tests); its own directory is not otherwise on the
+# import path in the latter case.
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
+import command_auth
+
 
 DEFAULT_QUEUE = "/home/pump/telemetry_head/fallback_commands.jsonl"
 DEFAULT_OUT_DIR = "/home/pump/telemetry_head"
 BROADCAST_TARGETS = {"*", "all", "broadcast", "^all"}
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            os.fchmod(f.fileno(), 0o600)
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def allocate_nonce(counter_path: Path) -> int:
+    """Return the next monotonically increasing nonce, durably persisted.
+
+    Callers must hold the worker/queue lock so this read-increment-write is not
+    raced. The nonce is global to the signing sender, which is what the
+    responder's per-sender replay window expects.
+    """
+    current = 0
+    if counter_path.exists():
+        try:
+            current = int(counter_path.read_text(encoding="utf-8").strip() or "0")
+        except ValueError:
+            current = 0
+    nxt = current + 1
+    atomic_write_text(counter_path, str(nxt))
+    return nxt
+
+
+def signed_command_base(rec: dict[str, Any]) -> dict[str, Any]:
+    """The signed (auth_tag-excluded) envelope for a queued command record."""
+    return {
+        "command_id": str(rec.get("command_id", "")),
+        "nonce": int(rec["auth_nonce"]),
+        "sender": str(rec["auth_sender"]),
+        "issued_at_utc": str(rec["auth_issued_at_utc"]),
+        "ttl_sec": int(rec.get("ttl_sec", 0) or 0),
+        "target": str(rec.get("target_node_id", "")),
+        "command": str(rec.get("command", "")),
+    }
+
+
+def ensure_command_signed(
+    rec: dict[str, Any],
+    *,
+    key: bytes,
+    sender: str,
+    tag_len: int,
+    alloc_nonce: "Any",
+) -> dict[str, Any]:
+    """Sign ``rec`` in place if unsigned, returning the full outbound envelope.
+
+    The signature is computed once (first send) and reused on every retry so the
+    nonce, timestamp, and tag the receiver authenticates stay stable across
+    redelivery. The full-length tag is retained on the record as evidence even
+    when a truncated tag is transmitted.
+    """
+    if "auth_tag" not in rec:
+        rec["auth_sender"] = sender
+        rec["auth_nonce"] = int(alloc_nonce())
+        rec["auth_issued_at_utc"] = rec.get("issued_at_utc") or utc_now_iso()
+        rec["auth_alg"] = command_auth.AUTH_ALG
+        rec["auth_tag_len"] = tag_len
+        base = signed_command_base(rec)
+        rec["auth_tag_full"] = command_auth.sign(key, base, tag_len=command_auth.FULL_TAG_LEN)
+        rec["auth_tag"] = command_auth.sign(key, base, tag_len=tag_len)
+    envelope = signed_command_base(rec)
+    envelope["auth_tag"] = str(rec["auth_tag"])
+    return envelope
 
 
 def utc_now() -> dt.datetime:
@@ -405,6 +491,10 @@ def main() -> int:
     p.add_argument("--allow-unauthenticated-rx-ack", action="store_true", help="Explicitly accept unauthenticated ACK text from an RX log (unsafe for production)")
     p.add_argument("--node-map-file", default=os.environ.get("MESHTASTIC_NODE_MAP_FILE", ""), help="JSON file mapping logical targets to Meshtastic node IDs")
     p.add_argument("--serial-lock-path", default=os.environ.get("SERIAL_LOCK_PATH", "/run/manet/lora_serial.lock"), help="Legacy CLI-only serial lock; normal deployment uses collector IPC")
+    p.add_argument("--sign-hmac-key-file", default=os.environ.get("FALLBACK_SIGN_HMAC_KEY_FILE", ""), help="If set, outbound commands are HMAC-signed with this key so receivers can authenticate them")
+    p.add_argument("--sign-sender", default=os.environ.get("FALLBACK_SIGN_SENDER", "head"), help="Logical sender identity embedded in signed commands")
+    p.add_argument("--sign-tag-len", type=int, default=int(os.environ.get("FALLBACK_SIGN_TAG_LEN", "16")), help="Hex chars of the transmitted HMAC tag (full tag is retained on the record as evidence)")
+    p.add_argument("--sign-nonce-file", default=os.environ.get("FALLBACK_SIGN_NONCE_FILE", ""), help="Durable monotonic nonce counter (defaults to <out-dir>/fallback_sign_nonce.state)")
 
     args = p.parse_args()
     if args.max_send_per_pass <= 0:
@@ -421,6 +511,15 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     events_path = out_dir / "fallback_worker_events.jsonl"
     lock_path = out_dir / "meshtastic_fallback_worker.lock"
+
+    sign_key: bytes | None = None
+    if args.sign_hmac_key_file:
+        if args.sign_tag_len <= 0 or args.sign_tag_len > command_auth.FULL_TAG_LEN or args.sign_tag_len % 2 != 0:
+            p.error(f"--sign-tag-len must be an even value in 1..{command_auth.FULL_TAG_LEN}")
+        sign_key = Path(args.sign_hmac_key_file).read_bytes()
+        if not sign_key:
+            p.error("--sign-hmac-key-file is empty")
+    nonce_counter_path = Path(args.sign_nonce_file) if args.sign_nonce_file else out_dir / "fallback_sign_nonce.state"
 
     adapter = build_adapter(args)
 
@@ -583,7 +682,19 @@ def main() -> int:
                     continue
 
                 attempt_count += 1
-                result = adapter.send(target=resolved_target, payload=payload, command_id=cid)
+                wire_payload = payload
+                if sign_key is not None:
+                    envelope = ensure_command_signed(
+                        rec,
+                        key=sign_key,
+                        sender=args.sign_sender,
+                        tag_len=args.sign_tag_len,
+                        alloc_nonce=lambda: allocate_nonce(nonce_counter_path),
+                    )
+                    wire_payload = json.dumps(
+                        envelope, sort_keys=True, separators=(",", ":"), allow_nan=False
+                    )
+                result = adapter.send(target=resolved_target, payload=wire_payload, command_id=cid)
                 if result.get("transport") == "dry_run":
                     rec["last_dry_run_at_utc"] = utc_now_iso()
                     rec["last_dry_run_result"] = result

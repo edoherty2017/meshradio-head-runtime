@@ -1,0 +1,47 @@
+[Unit]
+Description=Rotate and archive HEAD evidence with SHA-256 manifests
+After=telemetry_collector_head.service
+
+[Service]
+Type=oneshot
+User=pump
+Group=pump
+Environment=OUT_DIR=/home/pump/telemetry_head
+Environment=EVIDENCE_ARCHIVE_DIR=/home/pump/telemetry_head/archive
+Environment=EVIDENCE_MAX_BYTES=67108864
+Environment=EVIDENCE_MAX_AGE_SEC=86400
+Environment=EVIDENCE_RETENTION_SEC=0
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=-/etc/manet/head.env
+ExecStart=/usr/bin/python3 /opt/manet/head/scripts/evidence_rotate.py \
+    --archive-dir ${EVIDENCE_ARCHIVE_DIR} \
+    --source-glob ${OUT_DIR}/jsonl/*.jsonl \
+    --source-glob ${OUT_DIR}/raw/* \
+    --source-glob ${OUT_DIR}/starlink/*.jsonl \
+    --source ${OUT_DIR}/fallback_worker_events.jsonl \
+    --max-bytes ${EVIDENCE_MAX_BYTES} \
+    --max-age-sec ${EVIDENCE_MAX_AGE_SEC} \
+    --retention-sec ${EVIDENCE_RETENTION_SEC} \
+    --gzip
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/pump/telemetry_head
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,54 @@
+# requirements-starlink.lock  —  hash-pinned Starlink pip stack for the HEAD
+# =============================================================================
+# STATUS: TEMPLATE — hashes MUST be generated on the target architecture.
+#
+# This lock is installed with:
+#
+#     pip install --require-hashes --no-deps -r requirements-starlink.lock
+#
+# `--require-hashes` refuses to install any package whose artifact hash is not
+# listed, which pins the EXACT wheel bytes (supply-chain integrity). Because a
+# wheel hash is specific to one built artifact, the hashes below are specific to
+# the aarch64 / manylinux2014 CPython 3.11 wheels used on Raspberry Pi OS
+# (Bookworm). They CANNOT be produced correctly on the x86-64 / macOS build host
+# used to author this file, and they were NOT generated here (the authoring host
+# had neither the target ABI nor sufficient disk to fetch the full wheel set).
+#
+# -----------------------------------------------------------------------------
+# EXACT COMMAND TO GENERATE THE AUTHORITATIVE HASHED LOCK (run ON the Pi):
+# -----------------------------------------------------------------------------
+#   python3 -m pip install pip-tools==7.4.1
+#   python3 -m piptools compile \
+#       --generate-hashes \
+#       --allow-unsafe \
+#       --output-file requirements-starlink.lock \
+#       requirements-starlink.in
+#
+# Alternatively, without pip-tools, hash a resolved wheel set directly on the Pi:
+#   python3 -m pip download --only-binary=:all: --require-hashes=false \
+#       -d /tmp/slwheels -r requirements-starlink.in
+#   for w in /tmp/slwheels/*.whl; do echo "# $(basename "$w")"; \
+#       python3 -m pip hash "$w"; done
+#   # then transcribe each "<name>==<ver> --hash=sha256:..." into this file.
+#
+# Cross-compiling the hashes from another host (CI) is possible but MUST target
+# the Pi ABI explicitly, e.g.:
+#   python3 -m pip download --only-binary=:all: \
+#       --platform manylinux2014_aarch64 --implementation cp \
+#       --python-version 311 --abi cp311 \
+#       -d /tmp/slwheels -r requirements-starlink.in
+#
+# -----------------------------------------------------------------------------
+# VERIFICATION AFTER GENERATION
+# -----------------------------------------------------------------------------
+#   * Every direct and transitive package (grpcio, protobuf, pandas, numpy,
+#     python-dateutil, pytz, tzdata, six, ...) must appear with at least one
+#     sha256 hash.
+#   * Record the resolved versions + hashes in the software-manifest alongside
+#     the STARLINK_GRPC_COMMIT so the deployment is fully reproducible.
+#   * Re-run scripts/starlink_phase1_gate.py after installing from this lock.
+#
+# Until regenerated on-target, the intended (unhashed) version pins live in
+# requirements-starlink.in. Do NOT hand-edit fabricated hashes into this file:
+# a wrong hash silently fails closed, and a fabricated-but-valid hash would
+# defeat the entire supply-chain control.

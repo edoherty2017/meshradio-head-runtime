@@ -1,0 +1,67 @@
+{
+  "_note": "Declarative allowlist of non-pip system dependencies the HEAD runtime is permitted to rely on. Provisioning MUST NOT install anything outside this set, and each entry states its source and why it is trusted. apt packages are pinned to the Raspberry Pi OS (Bookworm) suite; verify installed versions land in the software-manifest at deploy time.",
+  "schema_version": 1,
+  "target_platform": {
+    "os": "Raspberry Pi OS (Debian 12 Bookworm)",
+    "arch": "aarch64",
+    "python": "system python3 (3.11.x)"
+  },
+  "apt_packages": [
+    {
+      "name": "python3",
+      "reason": "System CPython 3.11 interpreter that runs all HEAD scripts.",
+      "managed_by": "apt",
+      "suite": "bookworm"
+    },
+    {
+      "name": "python3-venv",
+      "reason": "Creates the isolated /opt/manet/venvs/starlink environment for the hashed Starlink stack.",
+      "managed_by": "apt",
+      "suite": "bookworm"
+    },
+    {
+      "name": "python3-serial",
+      "reason": "pyserial for the Meshtastic collector serial transport (reviewed system stack, README).",
+      "managed_by": "apt",
+      "suite": "bookworm"
+    },
+    {
+      "name": "chrony",
+      "reason": "Disciplines the system clock; ClockErrorBound QC in starlink_chrony_qc.py reads chronyc.",
+      "managed_by": "apt",
+      "suite": "bookworm"
+    },
+    {
+      "name": "openssh-client",
+      "reason": "Store-and-forward evidence sync (telemetry_sync_spool.sh) with strict host verification.",
+      "managed_by": "apt",
+      "suite": "bookworm"
+    },
+    {
+      "name": "rsync",
+      "reason": "Transport for the evidence spool upstream.",
+      "managed_by": "apt",
+      "suite": "bookworm"
+    },
+    {
+      "name": "gzip",
+      "reason": "Compression for archived evidence produced by scripts/evidence_rotate.py --gzip.",
+      "managed_by": "apt",
+      "suite": "bookworm"
+    }
+  ],
+  "vendored_git": [
+    {
+      "name": "starlink-grpc-tools",
+      "reason": "Provides the starlink_grpc module; not on PyPI, pinned by commit for reproducibility.",
+      "install_path": "/opt/manet/vendor/starlink-grpc-tools",
+      "pin_variable": "STARLINK_GRPC_COMMIT",
+      "manifest_field": "software-manifest.starlink_grpc_commit"
+    }
+  ],
+  "pip_stack_reference": {
+    "declarative_source": "requirements-starlink.in",
+    "hashed_lock": "requirements-starlink.lock",
+    "install_command": "pip install --require-hashes --no-deps -r requirements-starlink.lock"
+  }
+}

@@ -1,0 +1,26 @@
+# Declarative source-of-truth for the Starlink gRPC telemetry pip stack (HEAD).
+#
+# This lists ONLY the direct third-party pip dependencies imported by the
+# Starlink scripts:
+#   * scripts/starlink_raw_poller.py         -> grpc (grpcio), starlink_grpc
+#   * scripts/merge_starlink_into_telemetry.py -> pandas
+# starlink-grpc-tools generated stubs additionally require protobuf at runtime.
+#
+# NOT pip-managed here:
+#   * starlink-grpc-tools itself is VENDORED as a git checkout pinned by
+#     STARLINK_GRPC_COMMIT under /opt/manet/vendor/starlink-grpc-tools (see
+#     README "Deployment and verification"). Its commit is recorded in the
+#     software-manifest, not this file.
+#   * The Meshtastic collector stack (meshtastic, pypubsub, pyserial) is a
+#     separately reviewed system stack (README) and is out of scope for the
+#     Starlink lock.
+#
+# Version pins below are the intended floor/known-good set. The authoritative,
+# hash-pinned artifact is requirements-starlink.lock, which MUST be regenerated
+# on the target (aarch64 / Raspberry Pi OS) — see that file's header for the
+# exact command. Reconcile these pins against the reviewed software-manifest
+# before each deployment.
+
+grpcio==1.62.2
+protobuf==4.25.3
+pandas==2.2.2
