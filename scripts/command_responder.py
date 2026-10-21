@@ -108,6 +108,16 @@ def _worker_ack_canonical_bytes(record: dict[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
+# Broadcast target vocabulary, kept identical to the node responder's.
+BROADCAST_TARGETS = {"*", "all", "broadcast", "^all"}
+
+# Wire tag length actually transmitted by meshtastic_fallback_worker
+# (FALLBACK_SIGN_TAG_LEN, default 16). Verification length is pinned by local
+# policy, so this default must agree with the sender or every command is
+# rejected as a length mismatch.
+DEFAULT_WIRE_TAG_LEN = int(os.environ.get("FALLBACK_SIGN_TAG_LEN", "16"))
+
+
 class CommandResponder:
     def __init__(
         self,
@@ -116,10 +126,11 @@ class CommandResponder:
         transport: Transport,
         state_path: str | os.PathLike[str],
         responder_id: str = "responder",
+        mesh_id: str | None = None,
         handler: Callable[[dict[str, Any]], dict[str, Any]] = default_handler,
         allowlist: set[str] | None = None,
         kill_switch_path: str | os.PathLike[str] | None = None,
-        tag_len: int = command_auth.FULL_TAG_LEN,
+        tag_len: int = DEFAULT_WIRE_TAG_LEN,
         nonce_window: int = 64,
         max_clock_skew_sec: float = 120.0,
         default_ttl_sec: float = 900.0,
@@ -140,6 +151,7 @@ class CommandResponder:
         self.transport = transport
         self.state_path = Path(state_path)
         self.responder_id = responder_id
+        self.mesh_id = mesh_id
         self.handler = handler
         self.allowlist = set(allowlist) if allowlist is not None else None
         self.kill_switch_path = Path(kill_switch_path) if kill_switch_path else None
@@ -284,6 +296,20 @@ class CommandResponder:
             seen.append(nonce)
         self.state["seen_nonces"][sender] = sorted(seen)
 
+    def _targets_me(self, target: str) -> bool:
+        """True when ``target`` addresses this responder or is a broadcast.
+
+        A responder attached to a radio answers to both its logical
+        ``responder_id`` and its ``mesh_id`` (the ``!xxxxxxxx`` Meshtastic
+        address), matching the node responder's behaviour.
+        """
+        t = target.strip()
+        if t in BROADCAST_TARGETS:
+            return True
+        if t == self.responder_id:
+            return True
+        return bool(self.mesh_id) and t == self.mesh_id
+
     # -------------------------------------------------------------- transport
     def _build_response(self, rec: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
         response = {
@@ -295,8 +321,10 @@ class CommandResponder:
             "target": rec.get("sender", ""),
             "command": f"ACK {json.dumps(result, separators=(',', ':'), sort_keys=True)}",
         }
+        # Signed in the ACK domain: an ACK must never verify as a command, or
+        # two responders can sustain an ACK amplification loop on battery nodes.
         response[command_auth.AUTH_TAG_FIELD] = command_auth.sign(
-            self.key, response, tag_len=self.tag_len
+            self.key, response, tag_len=self.tag_len, domain=command_auth.DOMAIN_ACK
         )
         return response
 
@@ -372,6 +400,15 @@ class CommandResponder:
 
         if not command_auth.verify(self.key, rec, tag_len=self.tag_len):
             return self._reject(rec, Rejected("bad_hmac", "auth_tag verification failed"))
+
+        # Addressing is checked only after authentication, and only against the
+        # signed ``target`` field, so an unsigned field cannot redirect a
+        # command and an authenticated command for another node is not executed.
+        target = str(rec.get("target", "") or "")
+        if not self._targets_me(target):
+            return self._reject(
+                rec, Rejected("wrong_target", f"command addressed to {target!r}")
+            )
 
         command_id = rec["command_id"]
         sender = rec["sender"]
@@ -475,9 +512,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--key-file", required=True, help="File containing the raw HMAC key bytes")
     p.add_argument("--state-path", required=True, help="Durable responder state JSON path")
     p.add_argument("--responder-id", default=os.environ.get("RESPONDER_ID", "responder"))
+    p.add_argument("--mesh-id", default=os.environ.get("RESPONDER_MESH_ID", None), help="This radio's !xxxxxxxx Meshtastic address, also accepted as a command target")
     p.add_argument("--allow", action="append", default=None, help="Permitted command verb (repeatable)")
     p.add_argument("--kill-switch-file", default=os.environ.get("RESPONDER_KILL_SWITCH", None))
-    p.add_argument("--tag-len", type=int, default=command_auth.FULL_TAG_LEN)
+    p.add_argument("--tag-len", type=int, default=DEFAULT_WIRE_TAG_LEN)
     p.add_argument("--nonce-window", type=int, default=64)
     p.add_argument("--command-file", default="-", help="JSON command file, or '-' for stdin")
     args = p.parse_args(argv)
@@ -493,6 +531,7 @@ def main(argv: list[str] | None = None) -> int:
         transport=_StdoutTransport(),
         state_path=args.state_path,
         responder_id=args.responder_id,
+        mesh_id=args.mesh_id,
         allowlist=set(args.allow) if args.allow else None,
         kill_switch_path=args.kill_switch_file,
         tag_len=args.tag_len,

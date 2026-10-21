@@ -63,6 +63,13 @@ def signed_command(command_id="cmd-000000000001", nonce=1, sender="head",
 
 
 def make_responder(tmp_path, transport=None, **kw):
+    # mesh_id matches signed_command()'s default target: a responder attached to
+    # a radio answers to its own !xxxxxxxx address. tag_len defaults to the full
+    # digest here because signed_command() signs full-length by default; the
+    # deployed 16-char wire tag is covered by the tag_len=16 tests below and by
+    # the cross-runtime round-trip test.
+    kw.setdefault("mesh_id", "!1234abcd")
+    kw.setdefault("tag_len", command_auth.FULL_TAG_LEN)
     return cr.CommandResponder(
         key=KEY,
         transport=transport or RecordingTransport(),
@@ -197,13 +204,13 @@ def test_restart_resumes_dedup_and_nonce_state(tmp_path):
         return {"status": "ok"}
 
     state = tmp_path / "state.json"
-    r1 = cr.CommandResponder(key=KEY, transport=RecordingTransport(), nonce_window=2,
+    r1 = cr.CommandResponder(key=KEY, mesh_id="!1234abcd", tag_len=command_auth.FULL_TAG_LEN, transport=RecordingTransport(), nonce_window=2,
                              state_path=state, handler=handler, sleeper=lambda _s: None)
     r1.handle(signed_command(command_id="cmd-a", nonce=7))
     assert calls["n"] == 1
 
     # Fresh instance (simulated restart) pointed at the same durable state.
-    r2 = cr.CommandResponder(key=KEY, transport=RecordingTransport(), nonce_window=2,
+    r2 = cr.CommandResponder(key=KEY, mesh_id="!1234abcd", tag_len=command_auth.FULL_TAG_LEN, transport=RecordingTransport(), nonce_window=2,
                              state_path=state, handler=handler, sleeper=lambda _s: None)
     dup = r2.handle(signed_command(command_id="cmd-a", nonce=7))
     assert dup["duplicate"] is True
@@ -218,14 +225,14 @@ def test_restart_resends_response_when_prior_send_never_confirmed(tmp_path):
     state = tmp_path / "state.json"
     # First run: transport always fails, so response_sent stays False but the
     # decision is durably recorded.
-    r1 = cr.CommandResponder(key=KEY, transport=RecordingTransport(fail_first=99),
+    r1 = cr.CommandResponder(key=KEY, mesh_id="!1234abcd", tag_len=command_auth.FULL_TAG_LEN, transport=RecordingTransport(fail_first=99),
                              state_path=state, max_send_retries=0, sleeper=lambda _s: None)
     first = r1.handle(signed_command())
     assert first["response_sent"] is False
 
     # Restart with a healthy transport: redelivery resends the cached response.
     t2 = RecordingTransport()
-    r2 = cr.CommandResponder(key=KEY, transport=t2, state_path=state, sleeper=lambda _s: None)
+    r2 = cr.CommandResponder(key=KEY, mesh_id="!1234abcd", tag_len=command_auth.FULL_TAG_LEN, transport=t2, state_path=state, sleeper=lambda _s: None)
     dup = r2.handle(signed_command())
     assert dup["duplicate"] is True
     assert dup["response_sent"] is True
@@ -279,7 +286,9 @@ def test_worker_signed_command_verifies_at_responder(tmp_path):
     assert len(rec["auth_tag_full"]) == command_auth.FULL_TAG_LEN
     assert rec["auth_tag_len"] == 16
 
-    r = make_responder(tmp_path, tag_len=16)
+    # The worker signs the addressee from the queue record's target_node_id, so
+    # the responder must answer to that mesh address.
+    r = make_responder(tmp_path, tag_len=16, mesh_id="!db51af80")
     decision = r.handle(envelope)
     assert decision["accepted"] is True
 
