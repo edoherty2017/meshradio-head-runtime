@@ -133,15 +133,49 @@ if ! ssh_error="$(ssh "${SSH_ARGS[@]}" "${REMOTE_HOST}" true 2>&1)"; then
 fi
 
 if ! ssh "${SSH_ARGS[@]}" "${REMOTE_HOST}" \
-  "mkdir -p '${REMOTE_PATH}/jsonl' '${REMOTE_PATH}/raw' '${REMOTE_PATH}/starlink/raw' '${REMOTE_PATH}/starlink/derived' '${REMOTE_PATH}/starlink/qc'"; then
+  "mkdir -p '${REMOTE_PATH}/jsonl' '${REMOTE_PATH}/raw' '${REMOTE_PATH}/starlink/raw' '${REMOTE_PATH}/starlink/derived' '${REMOTE_PATH}/starlink/qc' '${REMOTE_PATH}/archive'"; then
   set_mode "${MODE_IP_DEGRADED}" "REMOTE_PREPARE_FAILED"
   exit 1
 fi
 
 transfer_failed=0
+
+# Rotated evidence goes FIRST, and this directory was previously in no transfer
+# list at all: evidence_rotate moves each sealed, hashed segment plus
+# MANIFEST.jsonl into ${OUT_DIR}/archive, so rotation was the mechanism by
+# which chain-of-custody evidence became single-copy on an SD card. It has to
+# land upstream *before* the live files below are refreshed, so the history is
+# durable before a post-rotation stub replaces a longer remote copy.
+if [[ -d "${OUT_DIR}/archive" ]]; then
+  # --ignore-existing, not --checksum: archived segments are sealed and
+  # uniquely named once written, so re-reading the whole accumulated archive on
+  # both ends every timer tick would be pure cost. MANIFEST.jsonl is the one
+  # append-only file here and is synced separately below.
+  if ! rsync -az --partial --ignore-existing -e "ssh ${SSH_OPTS}" \
+    --exclude 'MANIFEST.jsonl' --exclude '.rotate_state.json' --exclude '*.partial' \
+    "${OUT_DIR}/archive/" "${REMOTE_HOST}:${REMOTE_PATH}/archive/"; then
+    transfer_failed=1
+  fi
+  for archive_state in MANIFEST.jsonl .rotate_state.json; do
+    if [[ -f "${OUT_DIR}/archive/${archive_state}" ]]; then
+      if ! rsync -az --partial --checksum -e "ssh ${SSH_OPTS}" \
+        "${OUT_DIR}/archive/${archive_state}" \
+        "${REMOTE_HOST}:${REMOTE_PATH}/archive/${archive_state}"; then
+        transfer_failed=1
+      fi
+    fi
+  done
+fi
+
 for subdir in jsonl raw starlink/raw starlink/derived; do
   if [[ -d "${OUT_DIR}/${subdir}" ]]; then
-    if ! rsync -az --partial --append-verify -e "ssh ${SSH_OPTS}" \
+    # --append-verify was removed here. It skips any file whose receiver-side
+    # size is >= the sender's, so once evidence_rotate truncated
+    # jsonl/telemetry_stream.jsonl, no new telemetry was ever transferred
+    # again -- while rsync still exited 0 and the spool went on recording
+    # IP_FULL / EVIDENCE_TRANSFER_SUCCEEDED. --checksum compares content, so a
+    # rotated or re-provisioned file is re-sent instead of silently skipped.
+    if ! rsync -az --partial --checksum -e "ssh ${SSH_OPTS}" \
       "${OUT_DIR}/${subdir}/" "${REMOTE_HOST}:${REMOTE_PATH}/${subdir}/"; then
       transfer_failed=1
     fi
